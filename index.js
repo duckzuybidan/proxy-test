@@ -12,18 +12,10 @@ process.on("unhandledRejection", (reason) => {
 
 // Handle HTTP requests
 const handleHttpRequest = (clientRequest, clientResponse) => {
-  const parsedUrl = url.parse(clientRequest.url);
   const clientIP = clientRequest.socket.remoteAddress || "unknown";
 
-  // Validate hostname
-  if (!parsedUrl.hostname) {
-    clientResponse.writeHead(400);
-    clientResponse.end("Bad Request: Missing hostname\n");
-    return;
-  }
-
-  // Special route to check outbound IP from this proxy
-  if (parsedUrl.pathname === "/__myip") {
+  // If this is a direct request to your proxy (like /__myip), handle it specially
+  if (clientRequest.url === "/__myip") {
     console.log(`[CHECK IP] Request from ${clientIP}`);
     https
       .get("https://api.ipify.org", (res) => {
@@ -42,7 +34,17 @@ const handleHttpRequest = (clientRequest, clientResponse) => {
     return;
   }
 
-  // Regular proxy logging
+  // Now handle normal proxy requests
+  // clientRequest.url for proxy requests should be a full URL
+  const parsedUrl = url.parse(clientRequest.url);
+
+  // If no hostname (means this is not a proper proxy request)
+  if (!parsedUrl.hostname) {
+    clientResponse.writeHead(400, { "Content-Type": "text/plain" });
+    clientResponse.end("Bad Request: Missing hostname\n");
+    return;
+  }
+
   console.log(
     `[HTTP] From IP: ${clientIP} -> ${clientRequest.method} ${clientRequest.url}`
   );
@@ -58,12 +60,6 @@ const handleHttpRequest = (clientRequest, clientResponse) => {
   const proxyRequest = http.request(options, (proxyResponse) => {
     clientResponse.writeHead(proxyResponse.statusCode, proxyResponse.headers);
     proxyResponse.pipe(clientResponse);
-  });
-
-  proxyRequest.setTimeout(30000, () => {
-    proxyRequest.abort();
-    clientResponse.writeHead(504);
-    clientResponse.end("Gateway Timeout\n");
   });
 
   clientRequest.pipe(proxyRequest);
